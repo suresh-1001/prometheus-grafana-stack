@@ -6,6 +6,7 @@ Deploys Prometheus, Grafana, Node Exporter, cAdvisor, and Alertmanager with pre-
 
 Built for Bay Area SMBs and cloud environments that need real observability without a dedicated ops team.
 
+![Prometheus Grafana Stack](./image/prometheus-grafana-stack.webp)
 ---
 
 ## ⚡ Quick Start — Docker Compose
