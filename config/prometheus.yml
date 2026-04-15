@@ -1,0 +1,68 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# prometheus.yml — Scrape configuration
+# LineSight Digital | linesightdigital.com
+# ─────────────────────────────────────────────────────────────────────────────
+
+global:
+  scrape_interval:     15s   # How often to scrape targets
+  evaluation_interval: 15s   # How often to evaluate alert rules
+  scrape_timeout:      10s
+
+# Load alert rules
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+# Alertmanager integration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+scrape_configs:
+
+  # ── Prometheus self-monitoring ─────────────────────────────────────────────
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - localhost:9090
+
+  # ── Node Exporter (host OS metrics) ────────────────────────────────────────
+  - job_name: node
+    static_configs:
+      - targets:
+          - node-exporter:9100   # Docker Compose service name resolves automatically
+        labels:
+          instance: host
+
+  # ── cAdvisor (Docker container metrics) ────────────────────────────────────
+  - job_name: cadvisor
+    static_configs:
+      - targets:
+          - cadvisor:8080
+        labels:
+          instance: host
+
+  # ── Alertmanager self-monitoring ───────────────────────────────────────────
+  - job_name: alertmanager
+    static_configs:
+      - targets:
+          - alertmanager:9093
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # ADD ADDITIONAL TARGETS BELOW
+  # For bare-metal nodes running node_exporter, add entries like:
+  #
+  #   - job_name: node-remote
+  #     static_configs:
+  #       - targets:
+  #           - 192.168.1.10:9100
+  #         labels:
+  #           instance: web-01
+  #           env: prod
+  #       - targets:
+  #           - 192.168.1.11:9100
+  #         labels:
+  #           instance: db-01
+  #           env: prod
+  # ─────────────────────────────────────────────────────────────────────────────

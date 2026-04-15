@@ -1,0 +1,176 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# promtail.yml — Promtail log shipping configuration
+# LineSight Digital | linesightdigital.com
+#
+# Collects from three sources:
+#   1. systemd journal (syslog, auth, kernel)
+#   2. /var/log/** (application and OS log files)
+#   3. Docker container logs via /var/lib/docker/containers
+# ─────────────────────────────────────────────────────────────────────────────
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+  log_level: warn
+
+# Tracks read position for each file — survives restarts without re-sending logs
+positions:
+  filename: /tmp/positions/positions.yaml
+
+# Loki push endpoint
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+    tenant_id: ""           # Leave empty — auth_enabled is false in loki.yml
+    batchwait: 1s
+    batchsize: 1048576      # 1MB batch max
+    timeout: 10s
+    backoff_config:
+      min_period: 500ms
+      max_period: 5m
+      max_retries: 10
+
+scrape_configs:
+
+  # ── 1. systemd journal ───────────────────────────────────────────────────────
+  # Captures syslog, auth, kernel, and all systemd unit logs
+  - job_name: systemd-journal
+    journal:
+      max_age: 12h
+      labels:
+        job: systemd-journal
+        host: __HOSTNAME__
+    relabel_configs:
+      - source_labels: [__journal__systemd_unit]
+        target_label: unit
+      - source_labels: [__journal__hostname]
+        target_label: hostname
+      - source_labels: [__journal_priority_keyword]
+        target_label: level
+      - source_labels: [__journal__comm]
+        target_label: command
+    pipeline_stages:
+      - match:
+          selector: '{job="systemd-journal"}'
+          stages:
+            - static_labels:
+                source: journal
+
+  # ── 2. /var/log file scraping ────────────────────────────────────────────────
+  # Picks up most standard Linux log files automatically
+
+  - job_name: varlog-syslog
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: syslog
+          host: __HOSTNAME__
+          __path__: /var/log/{syslog,messages}
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<timestamp>\w+\s+\d+\s+[\d:]+)\s+(?P<hostname>\S+)\s+(?P<process>\S+?)(\[(?P<pid>\d+)\])?:\s+(?P<message>.*)$'
+      - labels:
+          hostname:
+          process:
+      - timestamp:
+          source: timestamp
+          format: 'Jan _2 15:04:05'
+
+  - job_name: varlog-auth
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: auth
+          host: __HOSTNAME__
+          __path__: /var/log/{auth.log,secure}
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<timestamp>\w+\s+\d+\s+[\d:]+)\s+(?P<hostname>\S+)\s+(?P<process>\S+?)(\[(?P<pid>\d+)\])?:\s+(?P<message>.*)$'
+      - labels:
+          hostname:
+          process:
+      - match:
+          selector: '{job="auth"}'
+          stages:
+            - metrics:
+                auth_failures_total:
+                  type: Counter
+                  description: "Count of authentication failures"
+                  source: message
+                  config:
+                    action: inc
+                    match_all: false
+
+  - job_name: varlog-kern
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: kernel
+          host: __HOSTNAME__
+          __path__: /var/log/kern.log
+    pipeline_stages:
+      - multiline:
+          firstline: '^\w+\s+\d+\s+[\d:]+'
+          max_wait_time: 3s
+
+  - job_name: varlog-apps
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: app-logs
+          host: __HOSTNAME__
+          __path__: /var/log/**/*.log
+    pipeline_stages:
+      - match:
+          # Detect log level from common patterns
+          selector: '{job="app-logs"}'
+          stages:
+            - regex:
+                expression: '(?i)(?P<level>(DEBUG|INFO|WARN|WARNING|ERROR|CRITICAL|FATAL))'
+            - labels:
+                level:
+
+  # ── 3. Docker container logs ─────────────────────────────────────────────────
+  # Reads directly from Docker's JSON log files
+  # Labels container name, image, and compose service automatically
+
+  - job_name: docker-containers
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: docker
+          host: __HOSTNAME__
+          __path__: /var/lib/docker/containers/*/*-json.log
+    pipeline_stages:
+      # Parse Docker JSON log format
+      - json:
+          expressions:
+            output: log
+            stream: stream
+            attrs:
+      - json:
+          expressions:
+            tag:
+          source: attrs
+      # Extract container name from the tag field
+      - regex:
+          expression: '^(?P<container_name>(?:[^|]*[^|]))$'
+          source: tag
+      - timestamp:
+          source: time
+          format: RFC3339Nano
+      - labels:
+          stream:
+          container_name:
+      - output:
+          source: output
+      # Drop noisy health check logs
+      - match:
+          selector: '{job="docker"}'
+          stages:
+            - regex:
+                expression: '(?i)(?P<level>(debug|info|warn|warning|error|critical|fatal))'
+            - labels:
+                level:
+      - drop:
+          expression: '.*healthcheck.*'
+          drop_counter_reason: healthcheck_noise

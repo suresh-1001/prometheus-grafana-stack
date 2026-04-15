@@ -1,0 +1,98 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# alertmanager.yml — Routing and notification config
+# LineSight Digital | linesightdigital.com
+#
+# Replace ALL values marked !! CONFIGURE !! before deploying.
+# ─────────────────────────────────────────────────────────────────────────────
+
+global:
+  resolve_timeout: 5m
+
+  # ── SMTP (Email) ────────────────────────────────────────────────────────────
+  smtp_smarthost:     'smtp.gmail.com:587'    # !! CONFIGURE !!
+  smtp_from:          'alerts@example.com'    # !! CONFIGURE !!
+  smtp_auth_username: 'alerts@example.com'    # !! CONFIGURE !!
+  smtp_auth_password: 'your-app-password'     # !! CONFIGURE !! Use app password, not account password
+  smtp_require_tls:   true
+
+  # ── Slack ───────────────────────────────────────────────────────────────────
+  slack_api_url: 'https://hooks.slack.com/services/XXX/YYY/ZZZ'  # !! CONFIGURE !!
+
+# ── Routing ───────────────────────────────────────────────────────────────────
+route:
+  receiver: team-default        # Catch-all receiver
+  group_by: [alertname, instance]
+  group_wait:      30s          # Wait before sending first alert in a group
+  group_interval:  5m           # Wait before sending new alerts for same group
+  repeat_interval: 4h           # Re-notify if alert is still firing
+
+  routes:
+    # Critical alerts → email + Slack
+    - match:
+        severity: critical
+      receiver: team-critical
+      continue: false
+
+    # Warning alerts → Slack only
+    - match:
+        severity: warning
+      receiver: team-slack
+      continue: false
+
+# ── Receivers ─────────────────────────────────────────────────────────────────
+receivers:
+
+  - name: team-default
+    email_configs:
+      - to: 'oncall@example.com'    # !! CONFIGURE !!
+        send_resolved: true
+        headers:
+          Subject: '[{{ .Status | toUpper }}] {{ .GroupLabels.alertname }} — {{ .GroupLabels.instance }}'
+        html: |
+          {{ range .Alerts }}
+          <b>Alert:</b> {{ .Annotations.summary }}<br>
+          <b>Description:</b> {{ .Annotations.description }}<br>
+          <b>Instance:</b> {{ .Labels.instance }}<br>
+          <b>Started:</b> {{ .StartsAt }}<br><br>
+          {{ end }}
+
+  - name: team-critical
+    email_configs:
+      - to: 'oncall@example.com'    # !! CONFIGURE !!
+        send_resolved: true
+        headers:
+          Subject: '[CRITICAL] {{ .GroupLabels.alertname }} — {{ .GroupLabels.instance }}'
+    slack_configs:
+      - channel: '#alerts-critical'   # !! CONFIGURE !!
+        send_resolved: true
+        icon_emoji: ':rotating_light:'
+        title: '{{ if eq .Status "firing" }}:red_circle:{{ else }}:large_green_circle:{{ end }} {{ .Status | toUpper }}: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Instance:* {{ .Labels.instance }}
+          *Summary:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Started:* {{ .StartsAt }}
+          {{ end }}
+
+  - name: team-slack
+    slack_configs:
+      - channel: '#alerts-warning'    # !! CONFIGURE !!
+        send_resolved: true
+        icon_emoji: ':warning:'
+        title: '{{ if eq .Status "firing" }}:yellow_circle:{{ else }}:large_green_circle:{{ end }} {{ .Status | toUpper }}: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Instance:* {{ .Labels.instance }}
+          *Summary:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          {{ end }}
+
+# ── Inhibition rules ──────────────────────────────────────────────────────────
+inhibit_rules:
+  # Suppress warnings if a critical alert is already firing for the same instance
+  - source_match:
+      severity: critical
+    target_match:
+      severity: warning
+    equal: [alertname, instance]

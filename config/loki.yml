@@ -1,0 +1,92 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# loki.yml — Loki configuration
+# LineSight Digital | linesightdigital.com
+#
+# Storage: MinIO (S3-compatible) by default.
+#
+# To switch to AWS S3, replace the storage_config.aws block with:
+#   storage_config:
+#     aws:
+#       s3: s3://your-bucket-name
+#       region: us-west-2
+#       access_key_id: YOUR_KEY
+#       secret_access_key: YOUR_SECRET
+#   And remove the endpoint / insecure / s3forcepathstyle fields.
+# ─────────────────────────────────────────────────────────────────────────────
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+# ── Query range limits ────────────────────────────────────────────────────────
+query_range:
+  results_cache:
+    cache:
+      embedded_cache:
+        enabled: true
+        max_size_mb: 100
+
+# ── Schema — defines index format and storage period ─────────────────────────
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: s3
+      schema: v13
+      index:
+        prefix: loki_index_
+        period: 24h
+
+# ── Storage: MinIO as S3-compatible backend ───────────────────────────────────
+storage_config:
+  tsdb_shipper:
+    active_index_directory: /loki/tsdb-index
+    cache_location: /loki/tsdb-cache
+    cache_ttl: 24h
+  aws:
+    endpoint: http://minio:9000          # MinIO endpoint (Docker service name)
+    region: us-east-1                   # Required field, value doesn't matter for MinIO
+    bucketnames: loki
+    access_key_id: ${MINIO_ROOT_USER:-minioadmin}
+    secret_access_key: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    insecure: true                      # MinIO over HTTP — set false for real S3
+    s3forcepathstyle: true              # Required for MinIO path-style addressing
+
+# ── Compactor (merges index chunks, manages retention) ────────────────────────
+compactor:
+  working_directory: /loki/compactor
+  compaction_interval: 10m
+  retention_enabled: true
+  retention_delete_delay: 2h
+  retention_delete_worker_count: 150
+  delete_request_store: s3
+
+# ── Retention limits ──────────────────────────────────────────────────────────
+limits_config:
+  retention_period: 30d               # Keep logs for 30 days
+  ingestion_rate_mb: 16
+  ingestion_burst_size_mb: 32
+  max_query_length: 721h              # ~30 days
+  max_query_series: 5000
+  max_entries_limit_per_query: 50000
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h   # 7 days — reject logs older than this on ingest
+
+# ── Ruler (alerting from log queries) ────────────────────────────────────────
+ruler:
+  alertmanager_url: http://alertmanager:9093
+
+# ── Analytics — disable phone-home ───────────────────────────────────────────
+analytics:
+  reporting_enabled: false

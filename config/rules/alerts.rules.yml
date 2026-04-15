@@ -1,0 +1,180 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# alerts.rules.yml — Prometheus alerting rules
+# LineSight Digital | linesightdigital.com
+# ─────────────────────────────────────────────────────────────────────────────
+
+groups:
+
+  # ── Node / Host ─────────────────────────────────────────────────────────────
+  - name: node
+    rules:
+
+      - alert: NodeDown
+        expr: up{job="node"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Node Exporter unreachable — {{ $labels.instance }}"
+          description: "Node Exporter on {{ $labels.instance }} has been unreachable for more than 1 minute. Host may be down."
+
+      - alert: HighCPULoad
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage — {{ $labels.instance }}"
+          description: "CPU usage on {{ $labels.instance }} is {{ $value | printf \"%.1f\" }}% (threshold: 85%) for the last 5 minutes."
+
+      - alert: CriticalCPULoad
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 95
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical CPU usage — {{ $labels.instance }}"
+          description: "CPU usage on {{ $labels.instance }} is {{ $value | printf \"%.1f\" }}% (threshold: 95%) for the last 5 minutes."
+
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage — {{ $labels.instance }}"
+          description: "Memory usage on {{ $labels.instance }} is {{ $value | printf \"%.1f\" }}% (threshold: 85%)."
+
+      - alert: CriticalMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 95
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical memory usage — {{ $labels.instance }}"
+          description: "Memory usage on {{ $labels.instance }} is {{ $value | printf \"%.1f\" }}% (threshold: 95%). Risk of OOM."
+
+      - alert: DiskSpaceWarning
+        expr: (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk space low — {{ $labels.instance }} {{ $labels.mountpoint }}"
+          description: "Disk {{ $labels.mountpoint }} on {{ $labels.instance }} is {{ $value | printf \"%.1f\" }}% full (threshold: 80%)."
+
+      - alert: DiskSpaceCritical
+        expr: (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes) * 100 > 90
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Disk space critical — {{ $labels.instance }} {{ $labels.mountpoint }}"
+          description: "Disk {{ $labels.mountpoint }} on {{ $labels.instance }} is {{ $value | printf \"%.1f\" }}% full (threshold: 90%). Immediate action required."
+
+      - alert: DiskWillFillIn4Hours
+        expr: predict_linear(node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"}[1h], 4 * 3600) < 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Disk filling fast — {{ $labels.instance }} {{ $labels.mountpoint }}"
+          description: "{{ $labels.mountpoint }} on {{ $labels.instance }} will be full within 4 hours at current write rate."
+
+      - alert: HighDiskIOWait
+        expr: avg by(instance) (rate(node_cpu_seconds_total{mode="iowait"}[5m])) * 100 > 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High disk I/O wait — {{ $labels.instance }}"
+          description: "I/O wait on {{ $labels.instance }} is {{ $value | printf \"%.1f\" }}% (threshold: 20%). Possible disk bottleneck."
+
+      - alert: NetworkReceiveErrors
+        expr: rate(node_network_receive_errs_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Network receive errors — {{ $labels.instance }} {{ $labels.device }}"
+          description: "Interface {{ $labels.device }} on {{ $labels.instance }} is receiving errors. Rate: {{ $value | printf \"%.2f\" }}/s."
+
+      - alert: SystemdServiceFailed
+        expr: node_systemd_unit_state{state="failed"} == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Systemd service failed — {{ $labels.instance }}"
+          description: "Service {{ $labels.name }} on {{ $labels.instance }} is in a failed state."
+
+  # ── Docker / cAdvisor ───────────────────────────────────────────────────────
+  - name: docker
+    rules:
+
+      - alert: ContainerDown
+        expr: absent(container_last_seen{name!=""}) or time() - container_last_seen{name!=""} > 60
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Container not seen — {{ $labels.name }}"
+          description: "Container {{ $labels.name }} on {{ $labels.instance }} has not been seen for over 1 minute."
+
+      - alert: ContainerHighCPU
+        expr: (rate(container_cpu_usage_seconds_total{name!=""}[5m]) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container high CPU — {{ $labels.name }}"
+          description: "Container {{ $labels.name }} is using {{ $value | printf \"%.1f\" }}% CPU (threshold: 80%)."
+
+      - alert: ContainerHighMemory
+        expr: (container_memory_usage_bytes{name!=""} / container_spec_memory_limit_bytes{name!=""}) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container high memory — {{ $labels.name }}"
+          description: "Container {{ $labels.name }} is using {{ $value | printf \"%.1f\" }}% of its memory limit (threshold: 85%)."
+
+  # ── Prometheus self-monitoring ───────────────────────────────────────────────
+  - name: prometheus
+    rules:
+
+      - alert: PrometheusDown
+        expr: up{job="prometheus"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus is down"
+          description: "Prometheus itself is unreachable. Monitoring is blind."
+
+      - alert: AlertmanagerDown
+        expr: up{job="alertmanager"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Alertmanager is down"
+          description: "Alertmanager is unreachable. Alerts will not be delivered."
+
+      - alert: PrometheusConfigReloadFailed
+        expr: prometheus_config_last_reload_successful == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus config reload failed"
+          description: "Prometheus failed to reload its configuration. Check prometheus.yml for errors."
+
+      - alert: PrometheusHighScrapeErrors
+        expr: rate(prometheus_target_scrape_pool_exceeded_target_limit_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus scrape errors detected"
+          description: "Prometheus is encountering scrape errors. Some metrics may be missing."

@@ -1,0 +1,17 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# dashboards/dashboard.yml — Tells Grafana where to load dashboard JSON from
+# LineSight Digital | linesightdigital.com
+# ─────────────────────────────────────────────────────────────────────────────
+
+apiVersion: 1
+
+providers:
+  - name: default
+    orgId: 1
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false
