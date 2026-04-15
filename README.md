@@ -7,6 +7,7 @@ Deploys Prometheus, Grafana, Node Exporter, cAdvisor, and Alertmanager with pre-
 Built for Bay Area SMBs and cloud environments that need real observability without a dedicated ops team.
 
 ![Prometheus Grafana Stack](./image/prometheus-grafana-stack.webp)
+
 ---
 
 ## ⚡ Quick Start — Docker Compose
@@ -76,13 +77,14 @@ sudo ./install.sh --grafana-port 3000 --prometheus-port 9090 --with-loki --loki-
 
 ## 📊 Dashboards
 
-Three dashboards auto-provision on first boot — no manual import required:
+Four dashboards auto-provision on first boot — no manual import required:
 
 | Dashboard | Covers |
 |---|---|
 | **Node Overview** | CPU %, memory %, disk %, network I/O, disk I/O — with instance variable filter |
 | **Docker Containers** | Per-container CPU, memory, network RX/TX — with container variable filter |
 | **Prometheus Overview** | Prometheus + Alertmanager status, scrape duration, samples/sec, TSDB size, active alerts |
+| **Logs Overview** | Log rate by job, error rate, live streams for errors/auth/Docker — with Loki overlay |
 
 > **Want the community dashboards?** Drop these JSONs into `grafana/provisioning/dashboards/` to replace the built-in ones:
 > - [Node Exporter Full](https://grafana.com/grafana/dashboards/1860) (ID: 1860)
@@ -168,23 +170,28 @@ curl -X POST http://localhost:9090/-/reload
 
 ```
 prometheus-grafana-stack/
-├── docker-compose.yml                      # Full stack — Docker Compose
+├── docker-compose.yml                      # Base stack — Docker Compose
+├── docker-compose.loki.yml                 # Loki + Promtail + MinIO overlay
 ├── install.sh                              # Bare metal installer (Ubuntu/Debian + RHEL)
 ├── .env.example                            # Copy to .env and set credentials
 ├── config/
 │   ├── prometheus.yml                      # Scrape configs
 │   ├── alertmanager.yml                    # Email + Slack routing
+│   ├── loki.yml                            # Loki S3/MinIO backend config
+│   ├── promtail.yml                        # Log shipper config (syslog, files, Docker)
 │   └── rules/
 │       └── alerts.rules.yml               # 17 alerting rules
 ├── grafana/
 │   └── provisioning/
 │       ├── datasources/
-│       │   └── prometheus.yml             # Auto-wired Prometheus datasource
+│       │   ├── prometheus.yml             # Auto-wired Prometheus datasource
+│       │   └── loki.yml                   # Auto-wired Loki datasource
 │       └── dashboards/
 │           ├── dashboard.yml              # Dashboard provider config
 │           ├── node.json                  # Node overview dashboard
 │           ├── docker.json                # Docker containers dashboard
-│           └── prometheus.json            # Prometheus self-monitoring dashboard
+│           ├── prometheus.json            # Prometheus self-monitoring dashboard
+│           └── logs.json                  # Logs overview dashboard (Loki)
 ├── checklist.md                            # Post-deploy verification checklist
 └── README.md
 ```
@@ -206,12 +213,13 @@ prometheus-grafana-stack/
 
 - [linux-server-onboarding-baseline](https://github.com/suresh-1001/linux-server-onboarding-baseline) — deploy a clean, hardened server first
 - [linux-auto-debug](https://github.com/suresh-1001/linux-auto-debug) — triage and self-heal Linux issues
+- [linux-cis-audit](https://github.com/suresh-1001/linux-cis-audit) — CIS Benchmark audit and remediation
 
 ---
 
 ## 👤 Author
 
-**Suresh Chand** — IT Consultant & Fractional IT Director, San Jose CA  
+**Suresh Chand** — IT Consultant & Fractional IT Director, San Jose CA
 20+ years in Linux systems administration, VMware, Azure, and SMB infrastructure.
 
 ---
